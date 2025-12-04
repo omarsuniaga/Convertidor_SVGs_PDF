@@ -1,9 +1,16 @@
 import React, { useCallback, useState } from 'react';
-import { Upload, FilePlus } from 'lucide-react';
+import { Upload, FilePlus, FileType } from 'lucide-react';
 
 interface UploadDropzoneProps {
   onFilesSelected: (files: File[]) => void;
 }
+
+const ACCEPTED_TYPES = {
+  'application/pdf': ['.pdf'],
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/png': ['.png'],
+  'image/svg+xml': ['.svg']
+};
 
 export const UploadDropzone: React.FC<UploadDropzoneProps> = ({ onFilesSelected }) => {
   const [isDragOver, setIsDragOver] = useState(false);
@@ -18,26 +25,42 @@ export const UploadDropzone: React.FC<UploadDropzoneProps> = ({ onFilesSelected 
     setIsDragOver(false);
   }, []);
 
+  const filterFiles = (files: File[]): File[] => {
+    return files.filter(file => {
+      const type = file.type;
+      const name = file.name.toLowerCase();
+      return (
+        type === 'application/pdf' ||
+        type === 'image/jpeg' ||
+        type === 'image/png' ||
+        type === 'image/svg+xml' ||
+        name.endsWith('.pdf') ||
+        name.endsWith('.jpg') ||
+        name.endsWith('.jpeg') ||
+        name.endsWith('.png') ||
+        name.endsWith('.svg')
+      );
+    });
+  };
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
     
-    const droppedFiles = Array.from(e.dataTransfer.files).filter(
-      (file: File) => file.type === 'image/svg+xml' || file.name.endsWith('.svg')
-    );
+    const droppedFiles = Array.from(e.dataTransfer.files) as File[];
+    const validFiles = filterFiles(droppedFiles);
     
-    if (droppedFiles.length > 0) {
-      onFilesSelected(droppedFiles);
+    if (validFiles.length > 0) {
+      onFilesSelected(validFiles);
     }
   }, [onFilesSelected]);
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const selectedFiles = Array.from(e.target.files).filter(
-        (file: File) => file.type === 'image/svg+xml' || file.name.endsWith('.svg')
-      );
-      if (selectedFiles.length > 0) {
-        onFilesSelected(selectedFiles);
+      const selectedFiles = Array.from(e.target.files) as File[];
+      const validFiles = filterFiles(selectedFiles);
+      if (validFiles.length > 0) {
+        onFilesSelected(validFiles);
       }
     }
     // Reset input value to allow selecting same files again if needed
@@ -60,10 +83,10 @@ export const UploadDropzone: React.FC<UploadDropzoneProps> = ({ onFilesSelected 
       <input
         type="file"
         multiple
-        accept=".svg,image/svg+xml"
+        accept=".pdf,.jpg,.jpeg,.png,.svg,application/pdf,image/jpeg,image/png,image/svg+xml"
         onChange={handleFileInput}
         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-        aria-label="Upload SVG files"
+        aria-label="Upload files"
       />
       
       <div className={`
@@ -74,11 +97,17 @@ export const UploadDropzone: React.FC<UploadDropzoneProps> = ({ onFilesSelected 
       </div>
       
       <h3 className="text-lg font-semibold text-gray-900 mb-1">
-        {isDragOver ? 'Drop files to add' : 'Click or drag SVGs here'}
+        {isDragOver ? 'Drop files to add' : 'Click or drag files here'}
       </h3>
-      <p className="text-sm text-gray-500 max-w-xs">
-        Select multiple .svg files to combine them into a single PDF document.
+      <p className="text-sm text-gray-500 max-w-sm">
+        Merge PDF, JPG, PNG, or SVG files into a single document.
       </p>
+      <div className="flex gap-2 mt-4 text-xs text-gray-400 font-medium">
+        <span className="px-2 py-1 bg-gray-100 rounded">PDF</span>
+        <span className="px-2 py-1 bg-gray-100 rounded">JPG</span>
+        <span className="px-2 py-1 bg-gray-100 rounded">PNG</span>
+        <span className="px-2 py-1 bg-gray-100 rounded">SVG</span>
+      </div>
     </div>
   );
 };

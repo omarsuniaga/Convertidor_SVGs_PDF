@@ -1,8 +1,9 @@
-export interface SvgFile {
+export interface AppFile {
   id: string;
   file: File;
   name: string;
-  url: string; // Object URL for preview and processing
+  type: string; // MIME type
+  url: string; // Object URL
   width?: number;
   height?: number;
 }

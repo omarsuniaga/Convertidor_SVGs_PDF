@@ -1,5 +1,5 @@
-import { jsPDF } from "jspdf";
-import { SvgFile, PdfQuality } from "../types";
+import { PDFDocument, PageSizes } from 'pdf-lib';
+import { AppFile, PdfQuality } from "../types";
 
 interface QualitySettings {
   scale: number;
@@ -9,14 +9,15 @@ interface QualitySettings {
 const QUALITY_CONFIG: Record<PdfQuality, QualitySettings> = {
   low: { scale: 1.0, quality: 0.6 },     // ~72 DPI, High compression
   medium: { scale: 2.0, quality: 0.75 }, // ~144 DPI, Balanced
-  high: { scale: 4.0, quality: 0.85 },   // ~288 DPI, High quality
+  high: { scale: 3.0, quality: 0.85 },   // ~216 DPI, High quality
 };
 
-// Helper to convert an image URL (SVG blob) to a JPEG Data URI via Canvas
-const convertSvgToImage = (
+// Helper to convert an image URL (Blob) to a JPEG buffer via Canvas
+// This normalizes resolution, handles transparency (white bg), and ensures standard format.
+const processFileToImageBuffer = (
   url: string, 
   settings: QualitySettings
-): Promise<{ dataUrl: string; width: number; height: number }> => {
+): Promise<{ buffer: Uint8Array; width: number; height: number }> => {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = "Anonymous";
@@ -25,29 +26,15 @@ const convertSvgToImage = (
     img.onload = () => {
       const canvas = document.createElement("canvas");
       
-      // Base A4 size reference (approximate 72 DPI points)
-      // width: 595px, height: 842px
-      // We scale this base resolution by the quality factor
-      
-      // Determine aspect ratio of the input image
-      // If image has no intrinsic size, assume A4 portrait
+      // Standardize to A4-ish proportions if no intrinsic size
       const imgW = img.width || 595;
       const imgH = img.height || 842;
       
-      // Target resolution based on A4 pixel density
-      // We essentially want to map the SVG to an A4 canvas at specific DPI
-      const targetBaseWidth = 595; 
-      
-      // Calculate the scale needed to make the image fit within the target resolution
-      // We use the configured 'scale' multiplier against standard screen DPI
+      // Apply quality scaling
       const resolutionScale = settings.scale;
       
-      const width = imgW;
-      const height = imgH;
-      
-      // Set canvas size
-      canvas.width = width * resolutionScale;
-      canvas.height = height * resolutionScale;
+      canvas.width = imgW * resolutionScale;
+      canvas.height = imgH * resolutionScale;
 
       const ctx = canvas.getContext("2d");
       if (!ctx) {
@@ -55,7 +42,7 @@ const convertSvgToImage = (
         return;
       }
 
-      // Fill background with white (JPEG doesn't support transparency)
+      // Fill background with white (handles transparency in PNG/SVG)
       ctx.fillStyle = "#FFFFFF";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -64,101 +51,141 @@ const convertSvgToImage = (
       ctx.imageSmoothingQuality = "high";
       ctx.scale(resolutionScale, resolutionScale);
       
-      ctx.drawImage(img, 0, 0, width, height);
+      ctx.drawImage(img, 0, 0, imgW, imgH);
       
-      // Use JPEG for significantly better compression than PNG for full-page images
+      // Export as JPEG Data URL
       const dataUrl = canvas.toDataURL("image/jpeg", settings.quality);
-      resolve({ dataUrl, width: canvas.width, height: canvas.height });
+      
+      // Convert Data URL to Uint8Array for pdf-lib
+      const base64 = dataUrl.split(',')[1];
+      const binaryString = window.atob(base64);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      resolve({ buffer: bytes, width: canvas.width, height: canvas.height });
     };
 
     img.onerror = (e) => reject(e);
   });
 };
 
-export const generatePdfFromSvgs = async (
-  files: SvgFile[], 
+const readFileAsArrayBuffer = (file: File): Promise<ArrayBuffer> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as ArrayBuffer);
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+};
+
+export const generatePdfFromFiles = async (
+  files: AppFile[], 
   quality: PdfQuality = 'medium',
-  filename: string = 'merged-vectors',
+  filename: string = 'merged-document',
   onProgress?: (percent: number) => void
 ): Promise<void> => {
   if (files.length === 0) return;
 
   const settings = QUALITY_CONFIG[quality];
-
-  // Initialize jsPDF (Default A4: 210mm x 297mm)
-  const pdf = new jsPDF({
-    orientation: "portrait",
-    unit: "mm",
-    format: "a4",
-  });
-
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
+  
+  // Create a new PDF Document
+  const mergedPdf = await PDFDocument.create();
 
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
-    
-    // Add new page for subsequent images
-    if (i > 0) {
-      pdf.addPage();
-    }
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 
     try {
-      const { dataUrl, width, height } = await convertSvgToImage(file.url, settings);
-      
-      // Calculate scaling to fit the PDF page while maintaining aspect ratio
-      const ratio = width / height;
-      
-      let finalWidth = pageWidth;
-      let finalHeight = pageWidth / ratio;
+      if (isPdf) {
+        // --- Handle PDF merging ---
+        const fileBuffer = await readFileAsArrayBuffer(file.file);
+        // Load the source PDF
+        const srcPdf = await PDFDocument.load(fileBuffer);
+        // Copy all pages from source PDF
+        const copiedPages = await mergedPdf.copyPages(srcPdf, srcPdf.getPageIndices());
+        // Add each copied page to the new document
+        copiedPages.forEach((page) => mergedPdf.addPage(page));
 
-      // If height is too tall for the page, scale by height instead
-      if (finalHeight > pageHeight) {
-        finalHeight = pageHeight;
-        finalWidth = finalHeight * ratio;
+      } else {
+        // --- Handle Image (SVG, JPG, PNG) embedding ---
+        // Process image to a standardized JPEG buffer (handles transparency, resolution)
+        const { buffer, width, height } = await processFileToImageBuffer(file.url, settings);
+        
+        // Embed the JPEG into the document
+        const imageEmbed = await mergedPdf.embedJpg(buffer);
+        
+        // Create a new A4 page
+        const page = mergedPdf.addPage(PageSizes.A4); // A4 is [595.28, 841.89]
+        const { width: pageWidth, height: pageHeight } = page.getSize();
+        
+        // Calculate dimensions to fit page while maintaining aspect ratio
+        const imgDims = imageEmbed.scaleToFit(pageWidth, pageHeight);
+        
+        // Center the image
+        const x = (pageWidth - imgDims.width) / 2;
+        const y = (pageHeight - imgDims.height) / 2;
+
+        // Draw the image
+        page.drawImage(imageEmbed, {
+          x,
+          y,
+          width: imgDims.width,
+          height: imgDims.height,
+        });
       }
-
-      // Center the image
-      const x = (pageWidth - finalWidth) / 2;
-      const y = (pageHeight - finalHeight) / 2;
-
-      pdf.addImage(dataUrl, "JPEG", x, y, finalWidth, finalHeight);
     } catch (error) {
       console.error(`Error processing file ${file.name}:`, error);
-      pdf.text(`Error loading image: ${file.name}`, 10, 10);
+      // Create a blank page with error text if processing fails
+      const page = mergedPdf.addPage(PageSizes.A4);
+      page.drawText(`Error processing file: ${file.name}`, { x: 50, y: 700 });
     }
 
     // Report progress
     if (onProgress) {
       const percent = Math.round(((i + 1) / files.length) * 100);
       onProgress(percent);
-      // Small delay to allow UI to render the progress update
+      // Yield to UI
       await new Promise(resolve => setTimeout(resolve, 10));
     }
   }
 
+  // Save the PDF
+  const pdfBytes = await mergedPdf.save();
+  
+  // Trigger download
+  const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  
   // Ensure filename ends in .pdf
-  const cleanFilename = filename.trim() || 'merged-vectors';
+  const cleanFilename = filename.trim() || 'merged-document';
   const finalFilename = cleanFilename.toLowerCase().endsWith('.pdf') 
     ? cleanFilename 
     : `${cleanFilename}.pdf`;
-
-  pdf.save(finalFilename);
+    
+  link.download = finalFilename;
+  link.click();
+  
+  // Cleanup
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 };
 
 export const getPdfSizeEstimate = (count: number, quality: PdfQuality): string => {
   if (count === 0) return "0 MB";
 
-  // Rough estimation logic based on A4 coverage with JPEG compression
-  // Low: ~150KB per page
-  // Medium: ~400KB per page
-  // High: ~1.2MB per page
+  // Rough estimation logic
+  // PDFs are hard to estimate because they vary wildly. We assume a base size + image estimation.
+  // Images: Low ~150KB, Med ~400KB, High ~1.2MB
   const sizeMap: Record<PdfQuality, number> = {
     low: 0.15,
     medium: 0.4,
     high: 1.2
   };
 
+  // We'll use the image estimate as a baseline for "pages"
   const estimatedTotalMB = count * sizeMap[quality];
   
   if (estimatedTotalMB < 1) {

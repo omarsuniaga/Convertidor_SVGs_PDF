@@ -1,16 +1,18 @@
 import React from 'react';
 import { Reorder, useDragControls } from 'framer-motion';
-import { GripVertical, X, FileImage } from 'lucide-react';
-import { SvgFile } from '../types';
+import { GripVertical, X, FileImage, FileType } from 'lucide-react';
+import { AppFile } from '../types';
 
 interface SortableItemProps {
-  file: SvgFile;
+  file: AppFile;
   index: number;
   onRemove: (id: string) => void;
 }
 
 export const SortableItem: React.FC<SortableItemProps> = ({ file, index, onRemove }) => {
   const dragControls = useDragControls();
+
+  const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 
   return (
     <Reorder.Item
@@ -38,21 +40,21 @@ export const SortableItem: React.FC<SortableItemProps> = ({ file, index, onRemov
           {index + 1}
         </div>
 
-        {/* Preview Thumbnail */}
-        <div className="w-12 h-12 bg-gray-50 border border-gray-100 rounded-md overflow-hidden flex items-center justify-center mr-4 p-1">
-          <img 
-            src={file.url} 
-            alt={file.name} 
-            className="w-full h-full object-contain pointer-events-none" 
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = 'none';
-            }}
-          />
-          <FileImage 
-            size={20} 
-            className="text-gray-300 absolute" 
-            style={{ display: 'none' }} // Only show if img fails, simplified here by always trying img first
-          /> 
+        {/* Preview Thumbnail or Icon */}
+        <div className="w-12 h-12 bg-gray-50 border border-gray-100 rounded-md overflow-hidden flex items-center justify-center mr-4 p-1 relative">
+          {isPdf ? (
+            <FileType className="text-red-500 w-8 h-8" />
+          ) : (
+            <img 
+              src={file.url} 
+              alt={file.name} 
+              className="w-full h-full object-contain pointer-events-none" 
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
+            />
+          )}
+          {/* Fallback Icon if image fails to load, handled visually by removing img on error */}
         </div>
 
         {/* File Info */}
@@ -60,9 +62,14 @@ export const SortableItem: React.FC<SortableItemProps> = ({ file, index, onRemov
           <p className="text-sm font-medium text-gray-900 truncate" title={file.name}>
             {file.name}
           </p>
-          <p className="text-xs text-gray-500">
-            {(file.file.size / 1024).toFixed(1)} KB
-          </p>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 uppercase px-1.5 py-0.5 bg-gray-100 rounded-sm font-semibold tracking-wider">
+              {file.name.split('.').pop() || 'FILE'}
+            </span>
+            <span className="text-xs text-gray-400 border-l border-gray-200 pl-2">
+              {(file.file.size / 1024).toFixed(1)} KB
+            </span>
+          </div>
         </div>
 
         {/* Actions */}

@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Reorder, AnimatePresence } from 'framer-motion';
-import { FileDown, Trash2, ArrowDownAZ, ArrowDownZA, RefreshCw, FileText, Settings, Info, PenLine } from 'lucide-react';
-import { SvgFile, PdfQuality } from './types';
+import { FileDown, Trash2, ArrowDownAZ, ArrowDownZA, RefreshCw, Layers, PenLine } from 'lucide-react';
+import { AppFile, PdfQuality } from './types';
 import { UploadDropzone } from './components/UploadDropzone';
 import { SortableItem } from './components/SortableItem';
 import { Button } from './components/Button';
-import { generatePdfFromSvgs, getPdfSizeEstimate } from './services/pdfService';
+import { generatePdfFromFiles, getPdfSizeEstimate } from './services/pdfService';
 
 const App: React.FC = () => {
-  const [files, setFiles] = useState<SvgFile[]>([]);
+  const [files, setFiles] = useState<AppFile[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | 'none'>('none');
@@ -29,7 +29,7 @@ const App: React.FC = () => {
       return;
     }
 
-    const names = files.map(f => f.name.replace(/\.svg$/i, ''));
+    const names = files.map(f => f.name.replace(/\.(svg|pdf|png|jpg|jpeg)$/i, ''));
     let suggested = names[0];
 
     // Find common prefix if multiple files exist
@@ -44,13 +44,13 @@ const App: React.FC = () => {
        suggested = prefix;
     }
     
-    // Clean up trailing numbers/separators (e.g., "bailando_01" -> "bailando")
+    // Clean up trailing numbers/separators
     suggested = suggested.replace(/[-_.\d\s]+$/, '');
     
     // Fallback if common prefix is empty or too short
     if (suggested.length < 2) {
        if (names.length > 1) suggested = "Combined"; 
-       else suggested = names[0].replace(/[-_.\d\s]+$/, ''); // For single file with number
+       else suggested = names[0].replace(/[-_.\d\s]+$/, '');
     }
     
     // Capitalize first letter
@@ -64,14 +64,15 @@ const App: React.FC = () => {
   }, [files]);
 
   const handleFilesSelected = (newFiles: File[]) => {
-    const newSvgFiles: SvgFile[] = newFiles.map(file => ({
+    const newAppFiles: AppFile[] = newFiles.map(file => ({
       id: Math.random().toString(36).substr(2, 9),
       file,
       name: file.name,
+      type: file.type,
       url: URL.createObjectURL(file),
     }));
 
-    setFiles(prev => [...prev, ...newSvgFiles]);
+    setFiles(prev => [...prev, ...newAppFiles]);
     setSortOrder('none'); // Reset sort order on new files
   };
 
@@ -110,7 +111,7 @@ const App: React.FC = () => {
     // Use setTimeout to allow UI to update the modal state before heavy processing
     setTimeout(async () => {
       try {
-        await generatePdfFromSvgs(
+        await generatePdfFromFiles(
           files, 
           quality, 
           outputFilename, 
@@ -135,10 +136,10 @@ const App: React.FC = () => {
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="bg-blue-600 p-2 rounded-lg text-white shadow-md">
-              <FileText size={24} />
+              <Layers size={24} />
             </div>
             <h1 className="text-xl font-bold text-gray-900 tracking-tight">
-              SVG to PDF <span className="text-blue-600 font-extrabold">Combiner</span>
+              File to PDF <span className="text-blue-600 font-extrabold">Combiner</span>
             </h1>
           </div>
           <div className="text-sm text-gray-500 hidden sm:block">
@@ -231,7 +232,7 @@ const App: React.FC = () => {
                     className="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 border-0 shadow-md whitespace-nowrap"
                     icon={<FileDown size={18} />}
                   >
-                    Generate PDF
+                    Merge Files
                   </Button>
                 </div>
               </div>
@@ -271,6 +272,7 @@ const App: React.FC = () => {
                     <RefreshCw size={48} className="opacity-50" />
                 </div>
                 <h3 className="text-gray-400 font-medium">No files selected yet</h3>
+                <p className="text-gray-400 text-sm mt-2">Upload images or PDFs to begin</p>
             </div>
         )}
       </main>
@@ -288,7 +290,7 @@ const App: React.FC = () => {
             </div>
             
             <h3 className="text-xl font-bold text-gray-900 mb-2">Generating PDF</h3>
-            <p className="text-gray-500 mb-6">Processing image {Math.ceil((progress / 100) * files.length) || 1} of {files.length}...</p>
+            <p className="text-gray-500 mb-6">Processing file {Math.ceil((progress / 100) * files.length) || 1} of {files.length}...</p>
             
             <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
               <div 
@@ -297,7 +299,7 @@ const App: React.FC = () => {
               />
             </div>
             
-            <p className="text-xs text-gray-400 mt-4">Please wait while we convert your vectors.</p>
+            <p className="text-xs text-gray-400 mt-4">Merging files and optimizing images...</p>
           </div>
         </div>
       )}
