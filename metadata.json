@@ -1,0 +1,5 @@
+{
+  "name": "SVG to PDF Combiner",
+  "description": "A modern tool to merge, reorder, and convert multiple SVG files into a single high-quality PDF document.",
+  "requestFramePermissions": []
+}
